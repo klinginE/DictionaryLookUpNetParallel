@@ -73,15 +73,19 @@ public class LookUpServer {
 				catch (InterruptedException e) {
 					e.printStackTrace();
 				}
-				String key = getParrentJobs().poll();
+				String key = getParrentJobs().peek();
+				boolean useKey = false;
 				if (key != null) {
 					for (ClientThread ct : getParrentThreads()) {
 						if (ct.getIsRunning() && !ct.isProcessingWord()) {
-							ct.processWord(key);
+							ct.processWord(getParrentJobs().poll());
+							useKey = true;
 							break;
 						}
 					}
 				}
+				if (!useKey)
+					parrent.availableJobs.release();
 
 			}
 			for (ClientThread ct : getParrentThreads()) {
