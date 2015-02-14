@@ -390,7 +390,7 @@ public class LookUpServer {
 		String line = "";
 		int count = 0;
 		boolean validUsername = true;
-		do {
+		//do {
 
 			validUsername = true;
 			line = input.readLine();
@@ -417,7 +417,7 @@ public class LookUpServer {
 				for (String user : userSockets.keySet()) {
 					if (user.toUpperCase().equals(line.toUpperCase())) {
 
-						output.print(MSG_TYPE.WELCOME.getValue() + ":" + "Invalid username\r\n");
+						output.print(MSG_TYPE.TERMINATE.getValue() + ":" + "Invalid username\r\n");
 						output.flush();
 						validUsername = false;
 						break;
@@ -426,7 +426,7 @@ public class LookUpServer {
 				}
 			}
 
-		} while((++count) < 3 && !validUsername);
+		//} while((++count) < 3 && !validUsername);
 		if (count >= 3 || !validUsername) {
 
 //			input.close();

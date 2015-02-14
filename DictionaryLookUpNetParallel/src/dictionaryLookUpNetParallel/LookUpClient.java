@@ -49,6 +49,7 @@ public class LookUpClient {
 		this.port = port;
 		clientSocket = new Socket();
 		try {
+			askForUserName();
 			clientSocket.connect(new InetSocketAddress(this.ip, this.port));
 		}
 		catch (IOException e) {
@@ -181,7 +182,6 @@ public class LookUpClient {
 			int count = 0;
 			do {
 
-				askForUserName();
 				output.print(MSG_TYPE.CONFIRM.getValue() + ":" + userName + "\r\n");
 				output.flush();
 
@@ -201,8 +201,19 @@ public class LookUpClient {
 					return false;
 
 				}
-				else if (!line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue())))
+				else if (!line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue()))) {
 					System.out.println("Username is already in use. Choose a different one");
+					if ((count + 1) < 3) {
+						try {
+							clientSocket.close();
+							askForUserName();
+							clientSocket.connect(new InetSocketAddress(this.ip, this.port));
+						}
+						catch (IOException e) {
+							e.printStackTrace();
+						}
+					}
+				}
 
 			} while ((++count) < 3 && !line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue())));
 
