@@ -2,7 +2,6 @@ package dictionaryLookUpNetParallel;
 
 import java.io.BufferedReader;
 import java.io.File;
-import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -84,20 +83,44 @@ public class LookUpClient {
 	public void runClient(File f) {
 
 		BufferedReader br = null;
+		BufferedReader input = null;
+		PrintWriter output = null;
 		try {
+
 			br = new BufferedReader(new FileReader(f));
+			input = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+			output = new PrintWriter(clientSocket.getOutputStream());
+
 		}
-		catch (FileNotFoundException e1) {
+		catch (IOException e1) {
 			e1.printStackTrace();
 		}
 
 		String word = "";
 		while ((word = getWord(br)) != null) {
-			//TODO:Send word to client NORMAL
-			//TODO:Print response if not normal NORMAL then quit
+
+			output.print(MSG_TYPE.NORMAL.getValue() + ":" + word + "\r\n");
+			output.flush();
+			String out = "";
+			try {
+				out = input.readLine();
+				if (out == null || !out.split(":")[0].equals(Integer.toString(MSG_TYPE.NORMAL.getValue())))
+					break;
+				System.out.print(out.split(":")[1] + "\n");
+				while(!(out = input.readLine()).equals("||END||"))
+					System.out.println(out);
+			}
+			catch (IOException e) {
+				e.printStackTrace();
+			}
+
 		}
-		//TODO:Send ending message to client TERMINATE
+		output.print(MSG_TYPE.TERMINATE.getValue() + ":\r\n");
+		output.flush();
 		try {
+			output.close();
+			input.close();
+			br.close();
 			clientSocket.close();
 		}
 		catch (IOException e) {
@@ -140,7 +163,7 @@ public class LookUpClient {
 			String line = input.readLine();
 			if (line == null) {
 
-				input.close();
+				//input.close();
 				return false;
 
 			}
@@ -148,7 +171,7 @@ public class LookUpClient {
 			line = line.trim();
 			if (!line.split(":")[0].equals(Integer.toString(MSG_TYPE.WELCOME.getValue()))) {
 
-				input.close();
+				//input.close();
 				return false;
 
 			}
@@ -165,27 +188,27 @@ public class LookUpClient {
 				line = input.readLine();
 				if (line == null) {
 
-					input.close();
-					output.close();
+					//input.close();
+					//output.close();
 					return false;
 
 				}
 				line = line.trim();
 				if (line.split(":")[0].equals(Integer.toString(MSG_TYPE.TERMINATE.getValue()))) {
 
-					input.close();
-					output.close();
+					//input.close();
+					//output.close();
 					return false;
 
 				}
 				else if (!line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue())))
 					System.out.println("Username is already in use. Choose a different one");
 
-			} while ((++count) < 3 && line != null && !line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue())));
+			} while ((++count) < 3 && !line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue())));
 
-			input.close();
-			output.close();
-			if (line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue())))
+			//input.close();
+			//output.close();
+			if (count < 3 && line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue())))
 				return true;
 
 		}
@@ -271,8 +294,8 @@ public class LookUpClient {
 			if (file.exists() && !file.isDirectory() && file.isFile() && file.canRead()) {
 
 				LookUpClient luc = new LookUpClient(ip, port);
-				luc.setUpConnection();
-				luc.runClient(file);
+				if (luc.setUpConnection())
+					luc.runClient(file);
 
 			}
 			else {

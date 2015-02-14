@@ -2,6 +2,8 @@ package dictionaryLookUpNetParallel;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
@@ -14,12 +16,15 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Queue;
+import java.util.concurrent.Semaphore;
 
 public class LookUpServer {
 
 	private static final int MAX_THREADS = (Runtime.getRuntime().availableProcessors() - 1);
 	private static final int MAX_CLIENTS = (MAX_THREADS * 10);
+	public final Semaphore availableJobs = new Semaphore(0, true);
 
+	private File dictFile = null;
 	private volatile String ip = "";
 	private volatile int port = 4444;
 	private ServerSocket serverSocket = null;
@@ -48,16 +53,75 @@ public class LookUpServer {
 
 	}
 
+	private class ManagerThread extends Thread {
+
+		private LookUpServer parrent = null;
+
+		public ManagerThread(LookUpServer lus) {
+			super();
+			parrent = lus;
+		}
+
+		@Override
+		public void run() {
+			
+			while (getParrentIsRunning()) {
+
+				try {
+					parrent.availableJobs.acquire();
+				}
+				catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+				String key = getParrentJobs().poll();
+				if (key != null) {
+					for (ClientThread ct : getParrentThreads()) {
+						if (ct.getIsRunning() && !ct.isProcessingWord()) {
+							ct.processWord(key);
+							break;
+						}
+					}
+				}
+
+			}
+			for (ClientThread ct : getParrentThreads()) {
+				ct.setIsRunning(false);
+				try {
+					ct.join();
+				}
+				catch (InterruptedException e) {
+					e.printStackTrace();
+				}
+			}
+			
+		}
+
+		private boolean getParrentIsRunning() {
+			synchronized(parrent) {
+				return parrent.getIsRunning();
+			}
+		}
+		private Queue<String> getParrentJobs() {
+			synchronized(parrent) {
+				return parrent.getJobs();
+			}
+		}
+		private ArrayList<ClientThread> getParrentThreads() {
+			synchronized(parrent) {
+				return parrent.getThreads();
+			}
+		}
+
+	}
+
 	private class ClientThread extends Thread {
+
+		private final Semaphore available = new Semaphore(0, true);
 
 		private volatile boolean isRunning = false;
 		private LookUpServer parrent = null;
 		private volatile String word = "";
 		private volatile String clientName = "";
-
-		public ClientThread() {
-			super();
-		}
 
 		public ClientThread(LookUpServer lus) {
 
@@ -66,39 +130,140 @@ public class LookUpServer {
 
 		}
 
-		@Override
-		public void run() {
-			
-			isRunning = true;
-			while (isRunning && getParrentIsRunning()) {
+		private String getDef(File dictFile, String word) {
 
-				while (clientName.equals("") && word.equals("") && isRunning && getParrentIsRunning()) {
+			BufferedReader br = null;
+			try {
+				br = new BufferedReader(new FileReader(dictFile));
+			}
+			catch (FileNotFoundException e1) {
+				e1.printStackTrace();
+			}
 
-					try {
-						sleep(100l);
-					}
-					catch (InterruptedException e) {
-						e.printStackTrace();
+			String line = "";
+			String output = "";
+
+			if (word.equals(""))
+				return "word not found. Perhaps you misspelled it.\n";
+
+			try {
+
+				boolean wordFound = false;
+				while ((line = br.readLine()) != null) {
+
+					if (line.equals(word)) {
+
+						wordFound = true;
+						output += line;
+						output += "\n";
+						while((line = br.readLine()) != null) {
+
+							if (line.matches("([A-Z])+") && !line.equals(word) && !line.equals(""))
+								break;
+							output += line;
+							output += "\n";
+
+						}
+						if (line == null)
+							break;
+
 					}
 
 				}
+				if (!wordFound) {
+
+					output += word;
+				    output += " not found. Perhaps you misspelled it.\n";
+
+				}
+
+			}
+			catch (IOException e) {
+				e.printStackTrace();
+			}
+
+			try {
+				br.close();
+			}
+			catch (IOException e) {
+				e.printStackTrace();
+			}
+
+			return output;
+
+		}
+		
+		@Override
+		public void run() {
+
+			isRunning = true;
+			while (isRunning && getParrentIsRunning()) {
+
+				try {
+					available.acquire();
+				}
+				catch (InterruptedException e) {
+					e.printStackTrace();
+				}
 				if (isRunning && getParrentIsRunning() && !word.equals("") && !clientName.equals("")) {
 
-					PrintWriter output = null;					
-					//TODO: process word and send results back to client
+					PrintWriter output = null;
+					BufferedReader input = null;
+					synchronized(userSockets) {
+						try {
+							output = new PrintWriter(userSockets.get(clientName).getOutputStream());
+							input = new BufferedReader(new InputStreamReader(userSockets.get(clientName).getInputStream()));
+						}
+						catch (IOException e) {
+							e.printStackTrace();
+						}
+					}
+					boolean lastWord = false;
+					do {
+
+						try {
+							this.sleep(10000);
+						}
+						catch (InterruptedException e1) {
+							e1.printStackTrace();
+						}
+
+						String out = getDef(getParrentDictFile(), word);
+						output.print(Integer.toString(MSG_TYPE.NORMAL.getValue()) + ":" + out + "||END||" + "\r\n");
+						output.flush();
+
+						try {
+							word = input.readLine().trim();
+						}
+						catch (IOException e) {
+							e.printStackTrace();
+						}
+						if (word.split(":")[0].equals(Integer.toString(MSG_TYPE.NORMAL.getValue())))
+							word = word.split(":")[1].trim();
+						else
+							lastWord = true;
+
+					} while(!lastWord);
+
 					synchronized(this) {
 
+						removeParrentUsername();
 						this.word = "";
 						this.clientName = "";
-						//output.close();
-						output = null;
+//						try {
+//							output.close();
+//							input.close();
+//						}
+//						catch (IOException e) {
+//							e.printStackTrace();
+//						}
 
 					}
 
 				}
 
 			}
-			
+
 		}
 
 		public boolean getIsRunning() {
@@ -108,11 +273,31 @@ public class LookUpServer {
 			isRunning = isRun;
 		}
 
-		public void processWord(String clientName, String clientWord) {
+		public void processWord(String clientName) {
 			synchronized(this) {
 				if (this.clientName.equals("") && this.word.equals("")) {
-					this.clientName = clientName;
-					this.word = clientWord;
+
+					try {
+
+						synchronized(userSockets) {
+
+							BufferedReader input = new BufferedReader(new InputStreamReader(userSockets.get(clientName).getInputStream()));
+							word = input.readLine().trim();
+
+						}
+
+					}
+					catch (IOException e) {
+						e.printStackTrace();
+					}
+					if (word.split(":")[0].equals(Integer.toString(MSG_TYPE.NORMAL.getValue()))) {
+
+						this.clientName = clientName;
+						word = word.split(":")[1].trim();
+						available.release();
+
+					}
+
 				}
 			}
 		}
@@ -127,6 +312,16 @@ public class LookUpServer {
 				return parrent.getIsRunning();
 			}
 		}
+		private File getParrentDictFile() {
+			synchronized(parrent) {
+				return parrent.getDictFile();
+			}
+		}
+		private void removeParrentUsername() {
+			synchronized(parrent) {
+				parrent.removeUsername(this.clientName);
+			}
+		}
 
 	}
 
@@ -134,11 +329,12 @@ public class LookUpServer {
 		super();
 	}
 
-	public LookUpServer(String ip, int port) {
+	public LookUpServer(String ip, int port, File f) {
 
 		super();
 		this.ip = ip;
 		this.port = port;
+		this.dictFile = f;
 		try {
 			serverSocket = new ServerSocket();
 		}
@@ -154,6 +350,7 @@ public class LookUpServer {
 		userSockets = new HashMap<String, Socket>(MAX_CLIENTS);
 		jobs = new LinkedList<String>();
 		threadPool = new ArrayList<ClientThread>(MAX_THREADS);
+		isRunning = true;
 		for (int i = 0; i < MAX_THREADS; i++) {
 			threadPool.add(new ClientThread(this));
 			threadPool.get(i).start();
@@ -168,9 +365,94 @@ public class LookUpServer {
 		isRunning = isRun;
 	}
 
+	public File getDictFile() {
+		return dictFile;
+	}
+
+	public Queue<String> getJobs() {
+		return jobs;
+	}
+	public ArrayList<ClientThread> getThreads() {
+		return threadPool;
+	}
+	public void removeUsername(String name) {
+		userSockets.remove(name);
+	}
+
+	public void acceptUser(Socket newClientSocket) throws IOException {
+
+		PrintWriter output = new PrintWriter(newClientSocket.getOutputStream());
+		BufferedReader input = new BufferedReader(new InputStreamReader(newClientSocket.getInputStream()));
+
+		output.print(MSG_TYPE.WELCOME.getValue() + ":" + "Welcome to the server, please send your username\r\n");
+		output.flush();
+
+		String line = "";
+		int count = 0;
+		boolean validUsername = true;
+		do {
+
+			validUsername = true;
+			line = input.readLine();
+			if (line == null) {
+
+//				input.close();
+//				output.close();
+				return;
+
+			}
+			line = line.trim();
+			if (!line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue()))) {
+
+				output.print(MSG_TYPE.TERMINATE.getValue() + ":" + "Invalid message\r\n");
+				output.flush();
+//				output.close();
+//				input.close();
+				return;
+
+			}
+			line = line.split(":")[1];
+			line = line.trim();
+			synchronized(userSockets) {
+				for (String user : userSockets.keySet()) {
+					if (user.toUpperCase().equals(line.toUpperCase())) {
+
+						output.print(MSG_TYPE.WELCOME.getValue() + ":" + "Invalid username\r\n");
+						output.flush();
+						validUsername = false;
+						break;
+
+					}
+				}
+			}
+
+		} while((++count) < 3 && !validUsername);
+		if (count >= 3 || !validUsername) {
+
+//			input.close();
+//			output.close();
+			return;
+
+		}
+		output.print(MSG_TYPE.CONFIRM.getValue() + ":" + "Username confirmed as " + line + "\r\n");
+		output.flush();
+
+		synchronized(userSockets) {
+
+			userSockets.put(line, newClientSocket);
+			jobs.add(line);
+			availableJobs.release();
+
+		}
+		//input.close();
+		//output.close();
+
+	}
+
 	public void runServer() {
 
-		isRunning = true;
+		ManagerThread mt = new ManagerThread(this);
+		mt.start();
 		while (isRunning) {
 
 			synchronized(userSockets) {
@@ -185,80 +467,8 @@ public class LookUpServer {
 				}
 			}
 
-			Socket newClientSocket = null;
 			try {
-				newClientSocket = serverSocket.accept();
-			}
-			catch (IOException e) {
-				continue;
-			}
-			PrintWriter output = null;
-			BufferedReader input = null;
-			try {
-
-				output = new PrintWriter(newClientSocket.getOutputStream());
-			
-				output.print(MSG_TYPE.WELCOME.getValue() + ":" + "Welcome to the server, please send your username\r\n");
-				output.flush();
-
-				input = new BufferedReader(new InputStreamReader(newClientSocket.getInputStream()));
-
-				boolean validUsername = true;
-				int count = 0;
-				String line = "";
-				do {
-
-					line = input.readLine();
-					if (line == null) {
-	
-						input.close();
-						output.close();
-						break;
-	
-					}
-					line = line.trim();
-					if (!line.split(":")[0].equals(Integer.toString(MSG_TYPE.CONFIRM.getValue()))) {
-	
-						output.print(MSG_TYPE.TERMINATE.getValue() + ":" + "Invalid message\r\n");
-						output.flush();
-						output.close();
-						input.close();
-						break;
-	
-					}
-					line = line.split(":")[1];
-					synchronized(userSockets) {
-						for (String user : userSockets.keySet())
-							if (user.toUpperCase().equals(line.toUpperCase())) {
-	
-								validUsername = false;
-								output.print(MSG_TYPE.WELCOME.getValue() + ":" + "Invalid username\r\n");
-								output.flush();
-	
-							}
-					}
-
-				} while ((++count) < 3 && !validUsername);
-				if (count >= 3 || !validUsername) {
-
-					input.close();
-					output.close();
-					continue;
-
-				}
-
-				output.print(MSG_TYPE.CONFIRM.getValue() + ":" + "Username confirmed as " + line + "\r\n");
-				output.flush();
-
-				synchronized(userSockets) {
-
-					userSockets.put(line, newClientSocket);
-					jobs.add(line);
-
-				}
-				input.close();
-				output.close();
-
+				acceptUser(serverSocket.accept());
 			}
 			catch (IOException e) {
 				continue;
@@ -342,9 +552,8 @@ public class LookUpServer {
 
 			if (file.exists() && !file.isDirectory() && file.isFile() && file.canRead()) {
 
-				LookUpServer luc = new LookUpServer(ip, port);
-				//TODO: start job handeler thread
-				luc.runServer();
+				LookUpServer lus = new LookUpServer(ip, port, file);
+				lus.runServer();
 
 			}
 			else {
