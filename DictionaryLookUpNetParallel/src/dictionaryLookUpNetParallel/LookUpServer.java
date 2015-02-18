@@ -78,6 +78,7 @@ public class LookUpServer {
 				if (key != null) {
 					for (ClientThread ct : getParrentThreads()) {
 						if (ct.getIsRunning() && !ct.isProcessingWord()) {
+							System.out.println("Thread ID: " + getId() + " Assigning thread ID: " + ct.getId() + " to a work for Username: " + key);
 							ct.processWord(getParrentJobs().poll());
 							useKey = true;
 							break;
@@ -225,13 +226,7 @@ public class LookUpServer {
 					boolean lastWord = false;
 					do {
 
-						try {
-							this.sleep(10000);
-						}
-						catch (InterruptedException e1) {
-							e1.printStackTrace();
-						}
-
+						System.out.println("Thread ID: " + this.getId() + "-- Searching for word: " + word);
 						String out = getDef(getParrentDictFile(), word);
 						output.print(Integer.toString(MSG_TYPE.NORMAL.getValue()) + ":" + out + "||END||" + "\r\n");
 						output.flush();
