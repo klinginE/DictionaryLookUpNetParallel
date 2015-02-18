@@ -73,17 +73,22 @@ public class LookUpServer {
 				catch (InterruptedException e) {
 					e.printStackTrace();
 				}
-				String key = getParrentJobs().peek();
 				boolean useKey = false;
-				if (key != null) {
-					for (ClientThread ct : getParrentThreads()) {
-						if (ct.getIsRunning() && !ct.isProcessingWord()) {
+				for (ClientThread ct : getParrentThreads()) {
+					if (ct.getIsRunning() && !ct.isProcessingWord()) {
+
+						String key = getParrentJobs().poll();
+						if (key != null) {
+
 							System.out.println("Thread ID: " + getId() + " Assigning thread ID: " + ct.getId() + " to a work for Username: " + key);
-							ct.processWord(getParrentJobs().poll());
+							ct.processWord(key);
 							useKey = true;
 							break;
+
 						}
+
 					}
+
 				}
 				if (!useKey)
 					parrent.availableJobs.release();
@@ -222,6 +227,7 @@ public class LookUpServer {
 						catch (IOException e) {
 							e.printStackTrace();
 						}
+
 					}
 					boolean lastWord = false;
 					do {
